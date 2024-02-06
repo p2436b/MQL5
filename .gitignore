@@ -13,3 +13,5 @@
 /Indicators/Examples
 /Indicators/Market
 *.dat
+*.ex5
+*.set
