@@ -83,19 +83,21 @@ void OnChartEvent(const int id,const long& lparam,const double& dparam,const str
             if(_hideLines)
                return;
 
-            double askPrice = SymbolInfoDouble(_Symbol, SYMBOL_ASK); // Buy
-            double bidPrice = SymbolInfoDouble(_Symbol, SYMBOL_BID); // Sell
+            double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK); // Buy
+            double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID); // Sell
+            double spread = ask - bid;
+
             if(_tradeType == "Buy")
               {
-               double lots = OptimumLotsSize(_Symbol, askPrice, _stopLossPrice, RiskPercentage);
-               _takeProfitPrice = bidPrice + _stopLossPoints * RiskRewardRatio * _Point;
+               double lots = OptimumLotsSize(_Symbol, ask, _stopLossPrice, RiskPercentage);
+               _takeProfitPrice = bid + (_stopLossPoints + spread) * RiskRewardRatio * _Point;
                _trade.Buy(lots, NULL, 0, _stopLossPrice, _takeProfitPrice, "PTrader");
               }
             else
                if(_tradeType == "Sell")
                  {
-                  double lots = OptimumLotsSize(_Symbol, bidPrice, _stopLossPrice, RiskPercentage);
-                  _takeProfitPrice = askPrice + _stopLossPoints * RiskRewardRatio * _Point;
+                  double lots = OptimumLotsSize(_Symbol, bid, _stopLossPrice, RiskPercentage);
+                  _takeProfitPrice = ask - (_stopLossPoints - spread) * RiskRewardRatio * _Point;
                   _trade.Sell(lots, NULL, 0, _stopLossPrice, _takeProfitPrice, "PTrader");
                  }
            }
@@ -105,11 +107,11 @@ void OnChartEvent(const int id,const long& lparam,const double& dparam,const str
             _hideLines = !_hideLines;
             if(_hideLines)
               {
-               CleanChart();
+               HideDrawings(true);
               }
             else
               {
-               Calculate();
+               HideDrawings(false);
               }
            }
         }
@@ -133,9 +135,22 @@ void CleanChart()
    ObjectDelete(0, _stopLossName + "Info");
    ObjectDelete(0, _currentPriceName);
    ObjectDelete(0, _currentPriceName + "Info");
+   ChartRedraw();
    _stopLossPrice = 0;
    _takeProfitPrice = 0;
-   ChartRedraw();
+  }
+
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+void HideDrawings(bool value)
+  {
+   ObjectSetInteger(0, _takeProfitName, OBJPROP_HIDDEN, value);
+   ObjectSetInteger(0, _takeProfitName + "Info", OBJPROP_HIDDEN, value);
+   ObjectSetInteger(0, _stopLossName, OBJPROP_HIDDEN, value);
+   ObjectSetInteger(0, _stopLossName + "Info", OBJPROP_HIDDEN, value);
+   ObjectSetInteger(0, _currentPriceName, OBJPROP_HIDDEN, 1);
+   ObjectSetInteger(0, _currentPriceName + "Info", OBJPROP_HIDDEN, value);
   }
 
 
@@ -155,6 +170,7 @@ void DrawLine(string name, double price, color _color, long isSelectable)
       ObjectSetInteger(0, infoName, OBJPROP_CORNER, CORNER_RIGHT_UPPER);
       ObjectSetInteger(0, infoName, OBJPROP_ANCHOR, ANCHOR_RIGHT_LOWER);
       ObjectSetInteger(0, infoName, OBJPROP_COLOR, _color);
+      ObjectSetString(0, infoName, OBJPROP_FONT, "Courier New");
 
       ObjectCreate(0, name, OBJ_HLINE, 0, NULL, price);
       ObjectSetInteger(0, name, OBJPROP_COLOR, _color);
@@ -185,29 +201,30 @@ void Calculate()
   {
    if(_hideLines)
       return;
-      
-   double askPrice = SymbolInfoDouble(_Symbol, SYMBOL_ASK); // Buy
-   double bidPrice = SymbolInfoDouble(_Symbol, SYMBOL_BID); // Sell
 
-   _stopLossPrice = _stopLossPrice == 0 ? _stopLossPrice = askPrice - _stopLossPoints * _Point : _stopLossPrice = ObjectGetDouble(0, _stopLossName, OBJPROP_PRICE);
+   double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK); // Buy
+   double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID); // Sell
+   double spread = (ask - bid) * _Digits;
 
-   if(_stopLossPrice < bidPrice)
+   _stopLossPrice = _stopLossPrice == 0 ? _stopLossPrice = ask - _stopLossPoints * _Point : _stopLossPrice = ObjectGetDouble(0, _stopLossName, OBJPROP_PRICE);
+   double lots = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN);
+   if(_stopLossPrice < bid)
      {
       _tradeType = "Buy";
-      _stopLossPoints = (askPrice - _stopLossPrice)  / _Point;
-      _takeProfitPrice = bidPrice + _stopLossPoints * RiskRewardRatio * _Point;
-      DrawLine(_currentPriceName, askPrice, clrDeepSkyBlue, 0);
-      double lots = OptimumLotsSize(_Symbol, askPrice, _stopLossPrice, RiskPercentage);
+      _stopLossPoints = CalculatePointsBetweenPrices(ask, _stopLossPrice);
+      _takeProfitPrice = bid + _stopLossPoints * RiskRewardRatio;
+      DrawLine(_currentPriceName, ask, clrDeepSkyBlue, 0);
+      lots = OptimumLotsSize(_Symbol, ask, _stopLossPrice, RiskPercentage);
       SetInfo(_currentPriceName, _tradeType + " - Lots: " + DoubleToString(lots, GetLotDigits(_Symbol)));
      }
    else
-      if(_stopLossPrice > askPrice)
+      if(_stopLossPrice > ask)
         {
          _tradeType = "Sell";
-         _stopLossPoints = (_stopLossPrice - bidPrice)  / _Point;
-         _takeProfitPrice = askPrice - _stopLossPoints * RiskRewardRatio * _Point;
-         DrawLine(_currentPriceName, bidPrice, clrDeepSkyBlue, 0);
-         double lots = OptimumLotsSize(_Symbol, bidPrice, _stopLossPrice, RiskPercentage);
+         _stopLossPoints = CalculatePointsBetweenPrices(bid, _stopLossPrice);
+         _takeProfitPrice = ask - _stopLossPoints * RiskRewardRatio;
+         DrawLine(_currentPriceName, bid, clrDeepSkyBlue, 0);
+         lots = OptimumLotsSize(_Symbol, bid, _stopLossPrice, RiskPercentage);
          SetInfo(_currentPriceName, _tradeType + " - Lots: " + DoubleToString(lots, GetLotDigits(_Symbol)));
         }
       else
@@ -216,13 +233,47 @@ void Calculate()
          SetInfo(_currentPriceName, _tradeType + " - Lots: 0.00");
         }
    DrawLine(_stopLossName, _stopLossPrice, clrRed, 1);
+   double a = CalculateRiskMoney(ask, _stopLossPrice, lots);//_stopLossPoints * CalculatePipPriceValue(SymbolInfoDouble(_Symbol, SYMBOL_TRADE_CONTRACT_SIZE), _Point, lots) * bid;
+
    double stopLossMoney = AccountInfoDouble(ACCOUNT_BALANCE) * RiskPercentage / 100;
-   SetInfo(_stopLossName, StringFormat("%.2f%% (%.2f %s)", RiskPercentage, stopLossMoney, _baseCurrency));
+   SetInfo(_stopLossName, StringFormat("%.2f%% (%.3f %s)", RiskPercentage, a, _baseCurrency));
 
    DrawLine(_takeProfitName, _takeProfitPrice, clrGreen, 0);
    double takeprofitMoney = AccountInfoDouble(ACCOUNT_BALANCE) * RiskPercentage * RiskRewardRatio / 100;
-   SetInfo(_takeProfitName, StringFormat("%.2f%% (%.2f %s)", RiskPercentage * RiskRewardRatio, takeprofitMoney, _baseCurrency));
+   SetInfo(_takeProfitName, StringFormat("%.2f%% (%.3f %s)", RiskPercentage * RiskRewardRatio, takeprofitMoney, _baseCurrency));
    ChartRedraw();
+  }
+
+
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+double CalculateRiskMoney(double entryPrice, double stopLossPrice, double lotSize)
+  {
+   double pointValue = SymbolInfoDouble(_Symbol, SYMBOL_POINT); // Point value per 1 lot
+   double pointDifference = MathAbs(stopLossPrice - entryPrice);
+   double riskMoney = pointDifference * pointValue * lotSize;
+   return riskMoney;
+  }
+
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+double CalculatePipPriceValue(double contractSize, double pointValue, double lotSize)
+  {
+
+   double value = contractSize * pointValue * lotSize;
+   Print(contractSize, " - ", pointValue, " - ", lotSize, " - ", value);
+   return value;
+  }
+
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+double CalculatePointsBetweenPrices(double price1, double price2)
+  {
+   double points = MathAbs(price2 - price1);
+   return points;
   }
 
 //+------------------------------------------------------------------+
